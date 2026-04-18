@@ -13,7 +13,10 @@ import Chat from './pages/Chat';
 import Detail from './pages/Detail';
 import Profile from './pages/Profile';
 import Settings from './pages/Settings';
-
+import Login from './pages/Login';
+import Register from './pages/Register';
+import Destinations from './pages/Destinations';
+import Recommendations from './pages/Recommendations';
 export default function App() {
   return (
     <Router>
@@ -25,6 +28,10 @@ export default function App() {
           <Route path="/detail" element={<Detail />} />
           <Route path="/profile" element={<Profile />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/register" element={<Register />} />
+          <Route path="/destinations" element={<Destinations />} />
+          <Route path="/recommendations" element={<Recommendations />} />
         </Routes>
         <BottomNav />
       </div>

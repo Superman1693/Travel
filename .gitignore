@@ -7,3 +7,4 @@ coverage/
 .history/
 .env*
 !.env.example
+*.md

@@ -3,8 +3,8 @@ import { Link, useLocation } from 'react-router-dom';
 export default function BottomNav() {
   const location = useLocation();
 
-  // Hide BottomNav on Detail view
-  if (location.pathname.startsWith('/detail')) {
+  // Hide BottomNav on Detail, Login, and Register views
+  if (location.pathname.startsWith('/detail') || location.pathname === '/login' || location.pathname === '/register') {
     return null;
   }
 

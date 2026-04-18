@@ -1,9 +1,60 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link,useNavigate } from 'react-router-dom';
+import { getCurrentUser, User } from '../services/user';
 
 export default function Profile() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const [user, setUser] = useState<User | null>(null);
+  const [isLoadingUser, setIsLoadingUser] = useState(true);
+  const [userError, setUserError] = useState('');
+  const navigate = useNavigate();
 
+  const fallbackAvatar = useMemo(
+    () => 'https://lh3.googleusercontent.com/aida-public/AB6AXuCNrwIUsVv00-3TzaxasKMLadmcPhK1MtWRH1WeKvCKQLd66E3LELr5sOiJpDCWtI1U_XVTk7NY690JjkelfF3WwHpyOYpaGSHf7cb5tjL0r-M8Lv1ocNJHtcKmBaUN-4r2oeHVmo0BmdDUZdDdYGqsbcVsHyU1CBHAj4rgxNsSpBUYq6f_gaa0m1WTHeDcAf3YZrYoQmvE34x_bXpZbb6pedKao0HO7WY5mOHNA5-hSgDaHrKVE0vO6gOJ6qGtOVaQ1v9SlJzm7ko',
+    []
+  );
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) {
+      navigate('/login', { replace: true });
+      return;
+    }
+
+    const cachedUser = localStorage.getItem('userInfo');
+    if (cachedUser) {
+      try {
+        setUser(JSON.parse(cachedUser) as User);
+      } catch {
+        localStorage.removeItem('userInfo');
+      }
+    }
+
+    const fetchCurrentUser = async () => {
+      try {
+        const latestUser = await getCurrentUser();
+        setUser(latestUser);
+        localStorage.setItem('userInfo', JSON.stringify(latestUser));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : '获取用户信息失败';
+        setUserError(message);
+      } finally {
+        setIsLoadingUser(false);
+      }
+    };
+
+    fetchCurrentUser();
+  }, [navigate]);
+
+  const handleLogout = () => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('userInfo');
+    navigate('/login', { replace: true });
+  };
+
+  const displayName = user?.username || '未登录用户';
+  const displayRole = user?.role === 'admin' ? '管理员' : '普通用户';
+  const displayEmail = user?.email || '暂未设置邮箱';
   return (
     <main className="font-body text-on-surface antialiased pb-28 min-h-screen px-6 pt-4 flex flex-col gap-8 bg-surface">
       {/* TopAppBar */}
@@ -30,20 +81,33 @@ export default function Profile() {
           <img 
             className="w-full h-full object-cover" 
             alt="Profile portrait" 
-            src="https://lh3.googleusercontent.com/aida-public/AB6AXuCNrwIUsVv00-3TzaxasKMLadmcPhK1MtWRH1WeKvCKQLd66E3LELr5sOiJpDCWtI1U_XVTk7NY690JjkelfF3WwHpyOYpaGSHf7cb5tjL0r-M8Lv1ocNJHtcKmBaUN-4r2oeHVmo0BmdDUZdDdYGqsbcVsHyU1CBHAj4rgxNsSpBUYq6f_gaa0m1WTHeDcAf3YZrYoQmvE34x_bXpZbb6pedKao0HO7WY5mOHNA5-hSgDaHrKVE0vO6gOJ6qGtOVaQ1v9SlJzm7ko" 
+            src={user?.avatarUrl || fallbackAvatar}
             referrerPolicy="no-referrer"
           />
         </div>
         <div className="flex flex-col z-10">
-          <h2 className="font-headline text-2xl text-on-surface mb-2">Alex Horizon</h2>
+          <h2 className="font-headline text-2xl text-on-surface mb-1">{displayName}</h2>
+          <p className="text-xs text-on-surface-variant mb-2">{displayEmail}</p>
           <div>
             <span className="inline-flex items-center gap-1 bg-secondary-container text-on-secondary-container px-3 py-1.5 rounded-full text-xs font-bold shadow-sm">
               <span className="material-symbols-outlined text-[14px]" style={{fontVariationSettings: "'FILL' 1"}}>verified</span>
-              高级旅客
+              {displayRole}
             </span>
           </div>
         </div>
       </section>
+
+      {isLoadingUser && (
+        <section className="bg-surface-container-lowest rounded-xl p-4 text-sm text-on-surface-variant">
+          正在同步用户信息...
+        </section>
+      )}
+
+      {userError && (
+        <section className="bg-surface-container-lowest rounded-xl p-4 text-sm text-error font-medium">
+          {userError}
+        </section>
+      )}
 
       {/* My Orders */}
       <section>
@@ -85,15 +149,15 @@ export default function Profile() {
         <div className="grid grid-cols-2 gap-4">
           <button className="bg-surface-container-lowest rounded-xl p-5 flex items-center gap-4 shadow-[0_12px_32px_rgba(35,44,81,0.06)] hover:bg-surface-container-low transition-colors duration-300 text-left cursor-pointer active:scale-95">
             <span className="material-symbols-outlined text-secondary text-2xl bg-secondary-container/30 p-2 rounded-full">favorite</span>
-            <span className="font-medium text-on-surface text-sm">我的收藏</span>
+            <span className="font-medium text-on-surface text-sm">收藏</span>
           </button>
           <button className="bg-surface-container-lowest rounded-xl p-5 flex items-center gap-4 shadow-[0_12px_32px_rgba(35,44,81,0.06)] hover:bg-surface-container-low transition-colors duration-300 text-left cursor-pointer active:scale-95">
             <span className="material-symbols-outlined text-tertiary-container text-2xl bg-tertiary-container/10 p-2 rounded-full">rate_review</span>
-            <span className="font-medium text-on-surface text-sm">我的点评</span>
+            <span className="font-medium text-on-surface text-sm">点评</span>
           </button>
           <button className="bg-surface-container-lowest rounded-xl p-5 flex items-center gap-4 shadow-[0_12px_32px_rgba(35,44,81,0.06)] hover:bg-surface-container-low transition-colors duration-300 text-left cursor-pointer active:scale-95">
             <span className="material-symbols-outlined text-primary text-2xl bg-primary-container/20 p-2 rounded-full">group</span>
-            <span className="font-medium text-on-surface text-sm">常用旅客</span>
+            <span className="font-medium text-on-surface text-sm">旅客</span>
           </button>
           <button className="bg-surface-container-lowest rounded-xl p-5 flex items-center gap-4 shadow-[0_12px_32px_rgba(35,44,81,0.06)] hover:bg-surface-container-low transition-colors duration-300 text-left cursor-pointer active:scale-95">
             <span className="material-symbols-outlined text-tertiary text-2xl bg-tertiary/10 p-2 rounded-full">confirmation_number</span>
@@ -111,7 +175,10 @@ export default function Profile() {
 
       {/* System Actions */}
       <section className="mt-4 flex flex-col gap-4 pb-12">
-        <button className="w-full bg-surface-container-low text-error rounded-xl p-5 font-headline font-bold text-center transition-colors hover:bg-error-dim hover:text-white cursor-pointer active:scale-95">
+       <button 
+          onClick={handleLogout}
+          className="w-full bg-surface-container-low text-error rounded-xl p-5 font-headline font-bold text-center transition-colors hover:bg-error-dim hover:text-white cursor-pointer active:scale-95"
+        >
           退出登录
         </button>
       </section>
