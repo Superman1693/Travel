@@ -26,9 +26,11 @@ export interface UpdateUserRequest {
     newPassword?: string;
 }
 
+// 修复：重置密码必须携带验证码，用户名/邮箱为必填
 export interface ResetPasswordRequest {
-    username?: string;
-    email?: string;
+    username: string;
+    email: string;
+    code: string;
     newPassword: string;
 }
 
@@ -55,6 +57,11 @@ export const getCurrentUser = (): Promise<User> => {
 // 修改用户信息
 export const updateUser = (data: UpdateUserRequest): Promise<User> => {
     return api.put('/user/update', data);
+};
+
+// 发送重置密码邮箱验证码
+export const sendResetCode = (data: { username: string; email: string }): Promise<unknown> => {
+    return api.post('/user/send-code', data);
 };
 
 export const resetPassword = (data: ResetPasswordRequest): Promise<User> => {

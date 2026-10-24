@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { sendMessageStream } from '../services';
 import { type AiSession, buildSessionId, inferSessionTitle, readSessions, removeSession, upsertSession, writeSessions } from '../utils/aiSession';
+import { buildUserScopedStorageKey } from '../utils/auth';
 import defaultAvatar from '../assets/unnamed.png';
 
 interface Message {
@@ -16,7 +17,8 @@ const WELCOME_MESSAGE: Message = {
   timestamp: new Date().toISOString(),
 };
 
-const CHAT_STORAGE_KEY = 'travel_chat_sessions_v1';
+// 会话存储按用户隔离：实际 key 为 `${BASE_KEY}:${userId}`，未登录用 guest
+const CHAT_STORAGE_BASE_KEY = 'travel_chat_sessions_v1';
 
 const createWelcomeMessage = (): Message => ({
   ...WELCOME_MESSAGE,
@@ -43,17 +45,19 @@ const isSameMessages = (a: Message[], b: Message[]) => {
 export default function Chat() {
   const navigate = useNavigate();
   const location = useLocation();
+  // 按登录用户隔离的会话存储 key（未登录为 guest）
+  const storageKey = buildUserScopedStorageKey(CHAT_STORAGE_BASE_KEY);
   const [showMenu, setShowMenu] = useState(false);
   const [sessions, setSessions] = useState<AiSession<Message>[]>(() => {
-    const existing = readSessions<Message>(CHAT_STORAGE_KEY);
+    const existing = readSessions<Message>(storageKey);
     return existing.length > 0 ? existing : [createSession()];
   });
   const [activeSessionId, setActiveSessionId] = useState<string>(() => {
-    const existing = readSessions<Message>(CHAT_STORAGE_KEY);
+    const existing = readSessions<Message>(storageKey);
     return existing[0]?.id || createSession().id;
   });
   const [messages, setMessages] = useState<Message[]>(() => {
-    const existing = readSessions<Message>(CHAT_STORAGE_KEY);
+    const existing = readSessions<Message>(storageKey);
     return existing[0]?.messages || [createWelcomeMessage()];
   });
   const [inputMessage, setInputMessage] = useState('');
@@ -64,6 +68,14 @@ export default function Chat() {
   // 让回写 effect 跳过这一次，避免 sessions ↔ messages 双向同步形成渲染循环。
   const syncingFromSessionsRef = useRef(false);
 
+  // 登录用户变化时（storageKey 内含用户标识），重新加载该用户的会话
+  useEffect(() => {
+    const existing = readSessions<Message>(storageKey);
+    setSessions(existing.length > 0 ? existing : [createSession()]);
+    setActiveSessionId(existing[0]?.id || createSession().id);
+    setMessages(existing[0]?.messages || [createWelcomeMessage()]);
+  }, [storageKey]);
+
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
@@ -73,8 +85,8 @@ export default function Chat() {
   }, [messages, currentAiMessage]);
 
   useEffect(() => {
-    writeSessions(CHAT_STORAGE_KEY, sessions);
-  }, [sessions]);
+    writeSessions(storageKey, sessions);
+  }, [sessions, storageKey]);
 
   useEffect(() => {
     const active = sessions.find((item) => item.id === activeSessionId);
@@ -259,6 +271,7 @@ export default function Chat() {
       <header className="flex justify-between items-center px-4 py-4 bg-surface/90 backdrop-blur-md z-30 sticky top-0 border-b border-surface-container">
         <div className="flex items-center gap-3">
           <button
+            aria-label="返回"
             onClick={() => navigate(-1)}
             className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-low active:scale-95 transition-colors text-on-surface-variant cursor-pointer"
           >

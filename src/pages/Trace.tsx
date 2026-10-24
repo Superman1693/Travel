@@ -61,6 +61,7 @@ export default function Trace() {
       <header className="sticky top-0 z-30 bg-surface/90 backdrop-blur-xl border-b border-surface-container-low px-6 py-4 flex items-center justify-between">
         <button
           type="button"
+          aria-label="返回"
           onClick={() => navigate(-1)}
           className="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container-low"
         >

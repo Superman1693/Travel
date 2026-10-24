@@ -1,27 +1,79 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { resetPassword } from '../services/user';
+import { resetPassword, sendResetCode } from '../services/user';
 
 export default function ForgotPassword() {
   const navigate = useNavigate();
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [code, setCode] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSendingCode, setIsSendingCode] = useState(false);
+  const [countdown, setCountdown] = useState(0);
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] = useState(false);
+
+  // 验证码 60 秒倒计时，倒计时期间禁用发送按钮
+  useEffect(() => {
+    if (countdown <= 0) {
+      return;
+    }
+    const timer = setTimeout(() => setCountdown((previous) => previous - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [countdown]);
+
+  const handleSendCode = async () => {
+    const normalizedUsername = username.trim();
+    const normalizedEmail = email.trim();
+
+    if (!normalizedUsername) {
+      setError('请先输入用户名');
+      return;
+    }
+
+    if (!normalizedEmail) {
+      setError('请先输入邮箱');
+      return;
+    }
+
+    try {
+      setError('');
+      setSuccess('');
+      setIsSendingCode(true);
+      await sendResetCode({ username: normalizedUsername, email: normalizedEmail });
+      setSuccess('验证码已发送，请查收邮箱');
+      setCountdown(60);
+    } catch (sendError) {
+      const message = sendError instanceof Error ? sendError.message : '验证码发送失败，请稍后重试';
+      setError(message);
+    } finally {
+      setIsSendingCode(false);
+    }
+  };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
     const normalizedUsername = username.trim();
     const normalizedEmail = email.trim();
+    const normalizedCode = code.trim();
 
-    if (!normalizedUsername && !normalizedEmail) {
-      setError('请至少填写用户名或邮箱中的一项');
+    if (!normalizedUsername) {
+      setError('请输入用户名');
+      return;
+    }
+
+    if (!normalizedEmail) {
+      setError('请输入邮箱');
+      return;
+    }
+
+    if (!/^\d{6}$/.test(normalizedCode)) {
+      setError('请输入 6 位数字验证码');
       return;
     }
 
@@ -40,8 +92,9 @@ export default function ForgotPassword() {
       setSuccess('');
       setIsSubmitting(true);
       await resetPassword({
-        username: normalizedUsername || undefined,
-        email: normalizedEmail || undefined,
+        username: normalizedUsername,
+        email: normalizedEmail,
+        code: normalizedCode,
         newPassword,
       });
       setSuccess('密码重置成功，请使用新密码登录');
@@ -62,6 +115,7 @@ export default function ForgotPassword() {
       <header className="w-full flex justify-between items-center px-6 py-6 z-10">
         <button
           type="button"
+          aria-label="返回"
           onClick={() => navigate(-1)}
           className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-low active:scale-95 transition-colors text-on-surface-variant cursor-pointer -ml-2"
         >
@@ -73,9 +127,7 @@ export default function ForgotPassword() {
       <div className="flex-1 px-8 pt-4 pb-8 flex flex-col z-10 overflow-y-auto no-scrollbar">
         <div className="mb-10">
           <h1 className="text-4xl font-black font-headline tracking-tight text-on-surface mb-3">找回密码</h1>
-          <p className="text-on-surface-variant font-medium text-[15px]">输入用户名或邮箱并设置新密码</p>
-          {/* TODO: 当前为简化重置流程，后续应增加邮箱验证码验证以提升安全性 */}
-          <p className="text-xs text-on-surface-variant/70 mt-2">当前为简化重置流程，后续将增加邮箱验证码验证</p>
+          <p className="text-on-surface-variant font-medium text-[15px]">输入用户名与邮箱，通过邮箱验证码重置密码</p>
         </div>
 
         <form className="space-y-5" onSubmit={handleSubmit}>
@@ -87,7 +139,7 @@ export default function ForgotPassword() {
                   type="text"
                   value={username}
                   onChange={(event) => setUsername(event.target.value)}
-                  placeholder="用户名（可选）"
+                  placeholder="用户名"
                   autoComplete="username"
                   className="bg-transparent border-none outline-none w-full text-[15px] font-medium text-on-surface placeholder:text-on-surface-variant/70"
                 />
@@ -101,10 +153,34 @@ export default function ForgotPassword() {
                   type="email"
                   value={email}
                   onChange={(event) => setEmail(event.target.value)}
-                  placeholder="邮箱（可选）"
+                  placeholder="邮箱"
                   autoComplete="email"
                   className="bg-transparent border-none outline-none w-full text-[15px] font-medium text-on-surface placeholder:text-on-surface-variant/70"
                 />
+              </div>
+            </div>
+
+            <div className="group">
+              <div className="flex items-center bg-surface-container-lowest border border-surface-container-high rounded-[1.25rem] px-5 py-3.5 transition-all duration-300 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 focus-within:bg-surface shadow-[0_4px_16px_rgba(0,0,0,0.02)]">
+                <span className="material-symbols-outlined text-outline mr-3 group-focus-within:text-primary transition-colors">sms</span>
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  maxLength={6}
+                  value={code}
+                  onChange={(event) => setCode(event.target.value.replace(/\D/g, ''))}
+                  placeholder="6 位邮箱验证码"
+                  autoComplete="one-time-code"
+                  className="bg-transparent border-none outline-none w-full text-[15px] font-medium text-on-surface placeholder:text-on-surface-variant/70"
+                />
+                <button
+                  type="button"
+                  onClick={handleSendCode}
+                  disabled={isSendingCode || countdown > 0}
+                  className="ml-3 shrink-0 whitespace-nowrap text-sm font-bold text-primary active:scale-95 transition-transform disabled:text-on-surface-variant/50 disabled:cursor-not-allowed cursor-pointer"
+                >
+                  {countdown > 0 ? `${countdown}s 后重发` : isSendingCode ? '发送中...' : '发送验证码'}
+                </button>
               </div>
             </div>
 

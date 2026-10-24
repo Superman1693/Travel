@@ -63,12 +63,38 @@ export default function Search() {
     [pageSize],
   );
 
+  // 竞态守卫：关键词快速变化时，cleanup 置 cancelled，防止过期搜索结果覆盖新结果
   useEffect(() => {
-    if (keyword) {
-      setInputValue(keyword);
-      executeSearch(keyword, 1, false);
-    }
-  }, [keyword, executeSearch]);
+    if (!keyword) return;
+
+    let cancelled = false;
+    setInputValue(keyword);
+    (async () => {
+      try {
+        setLoading(true);
+        setResults([]);
+        setError('');
+        const data = await search(keyword, 'all', 1, pageSize);
+        if (cancelled) return;
+        const list = data.list || [];
+        setResults(list);
+        setTotal(data.total || 0);
+        setHasMore(list.length >= pageSize);
+        setPage(1);
+      } catch (err) {
+        if (cancelled) return;
+        const message = err instanceof Error ? err.message : '搜索失败，请稍后重试';
+        setError(message);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [keyword]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -89,6 +115,7 @@ export default function Search() {
         <form onSubmit={handleSubmit} className="flex items-center gap-3">
           <button
             type="button"
+            aria-label="返回"
             onClick={() => navigate(-1)}
             className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-low active:scale-95 transition-colors text-on-surface-variant shrink-0"
           >

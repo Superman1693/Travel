@@ -85,8 +85,9 @@ export default function Register() {
 
       {/* Header */}
       <header className="w-full flex justify-between items-center px-6 py-6 z-10">
-        <button 
-          onClick={() => navigate(-1)} 
+        <button
+          aria-label="返回"
+          onClick={() => navigate(-1)}
           className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-low active:scale-95 transition-colors text-on-surface-variant cursor-pointer -ml-2"
         >
           <span className="material-symbols-outlined text-2xl">arrow_back_ios_new</span>

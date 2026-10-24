@@ -30,8 +30,9 @@ export default function OrderDetailPage() {
   }, [detail]);
 
   const loadDetail = async () => {
-    if (!orderId) {
-      setError('缺少订单参数');
+    // NaN 拦截：orderId 非法（缺失或非有限数字）时直接显示错误态，不发请求
+    if (!orderId || !Number.isFinite(Number(orderId))) {
+      setError('订单参数无效');
       setLoading(false);
       return;
     }
@@ -133,6 +134,7 @@ export default function OrderDetailPage() {
       <header className="sticky top-0 z-30 bg-surface/90 backdrop-blur-xl border-b border-surface-container-low px-6 py-4 flex items-center justify-between">
         <button
           type="button"
+          aria-label="返回"
           onClick={() => navigate('/orders')}
           className="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container-low"
         >

@@ -28,6 +28,11 @@ export const getHotRecommendations = (
     return api.get('/recommendation/hot', { params: { page, size } });
 };
 
+// 根据ID获取推荐详情
+export const getRecommendationById = (id: number): Promise<Recommendation> => {
+    return api.get(`/recommendation/${id}`);
+};
+
 // 根据位置获取热门推荐（修复 E5/D3：后端已改为 POST 且需登录）
 export const getHotRecommendationsByLocation = (
     location: string,

@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, type AxiosRequestConfig } from 'axios';
 import { API_BASE_URL } from '../utils/network';
+import { clearAuthState, redirectToLoginForUnauthorized } from '../utils/auth';
 import { readLocationCache } from '../utils/location';
 
 // 修复 E49：收窄敏感错误匹配规则。原规则（/sql/i、/syntax/i、/com\./i 等）过于宽泛，
@@ -90,11 +91,11 @@ axiosInstance.interceptors.response.use(
         // token 过期
         if (code === 40100) {
             const hasToken = Boolean(normalizeToken(localStorage.getItem('token')));
-            localStorage.removeItem('token');
-            localStorage.removeItem('userInfo');
-            // 仅在已有登录态失效时才强制回到登录页，游客浏览不做硬跳转
+            clearAuthState();
+            // 仅在已有登录态失效时才强制回到登录页，游客浏览不做硬跳转；
+            // 携带当前 hash 路径作为 redirect，登录成功后回跳
             if (hasToken) {
-                window.location.replace(`${window.location.origin}/#/login`);
+                redirectToLoginForUnauthorized();
             }
             return Promise.reject(new Error(safeMessage));
         }

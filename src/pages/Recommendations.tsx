@@ -47,6 +47,7 @@ export default function Recommendations() {
     <main className="bg-surface min-h-screen pb-28 text-on-surface">
       <header className="sticky top-0 z-30 bg-surface/90 backdrop-blur-xl border-b border-surface-container-low px-6 py-4 flex items-center justify-between">
         <button
+          aria-label="返回"
           onClick={() => navigate(-1)}
           className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-low active:scale-95 transition-colors"
         >

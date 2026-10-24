@@ -74,8 +74,32 @@ export default function Orders() {
     }
   };
 
+  // 竞态守卫：切换筛选时若上一次请求未返回，cleanup 置 cancelled，防止过期结果覆盖新数据
   useEffect(() => {
-    void loadOrders(currentStatus, 1, false);
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        setError('');
+        const result = await getOrderList(currentStatus === 'all' ? undefined : currentStatus, 1, pageSize);
+        if (cancelled) return;
+        const list = result.list || [];
+        setOrders(list);
+        setHasMore(list.length >= pageSize);
+        setPage(1);
+      } catch (loadError) {
+        if (cancelled) return;
+        const message = loadError instanceof Error ? loadError.message : '加载订单失败';
+        setError(message);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [currentStatus]);
 
   const handleCancel = async (orderId: number) => {
@@ -136,6 +160,7 @@ export default function Orders() {
       <header className="sticky top-0 z-30 bg-surface/90 backdrop-blur-xl border-b border-surface-container-low px-6 py-4 flex items-center justify-between">
         <button
           type="button"
+          aria-label="返回"
           onClick={() => navigate('/profile')}
           className="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container-low"
         >

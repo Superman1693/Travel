@@ -10,6 +10,7 @@ import {
   getHotRecommendations,
   getItineraryDetail,
   getItineraryList,
+  getRecommendationById,
   removeFavorite,
   type AddPlaceRequest,
   type DestinationDetail,
@@ -64,6 +65,16 @@ export default function Detail() {
           setDestinationDetail(data);
           setRecommendationDetail(null);
           return;
+        }
+
+        // 优先使用单条推荐接口；失败时回退原有「会话缓存 → 热门列表」绕行取数兜底
+        try {
+          const detail = await getRecommendationById(id);
+          setRecommendationDetail(detail);
+          setDestinationDetail(null);
+          return;
+        } catch {
+          // 单条接口不可用时走下方兜底逻辑
         }
 
         const cache = sessionStorage.getItem(`travel.recommendation.${id}`);
@@ -350,9 +361,13 @@ export default function Detail() {
 
     if (userInfoRaw) {
       try {
-        const parsed = JSON.parse(userInfoRaw) as { username?: string };
+        const parsed = JSON.parse(userInfoRaw) as { username?: string; phone?: string };
         if (parsed.username) {
           contactName = parsed.username;
+        }
+        // 优先使用登录用户信息中携带的手机号
+        if (parsed.phone) {
+          contactPhone = parsed.phone;
         }
       } catch {
         // 忽略本地缓存解析异常，使用默认联系人
@@ -377,8 +392,8 @@ export default function Detail() {
       travelers: 2,
       startDate: buildTodayIsoDate(),
       contactName,
-      // TODO: 当后端提供手机号字段后，此处应使用用户真实手机号
-      contactPhone: contactPhone || '13800000000',
+      // 无可用手机号时留空，由 handleBookNow 在提交前拦截校验
+      contactPhone,
     };
   };
 
@@ -393,10 +408,17 @@ export default function Detail() {
       return;
     }
 
+    const orderPayload = buildOrderPayload();
+    if (!orderPayload.contactPhone.trim()) {
+      setActionTone('error');
+      setActionMessage('请先在「设置 - 账号安全」中补全联系电话后再下单');
+      return;
+    }
+
     try {
       setIsBooking(true);
       setActionMessage('');
-      const order = await createOrder(buildOrderPayload());
+      const order = await createOrder(orderPayload);
       setActionTone('success');
       setActionMessage(`下单成功，订单号 ${order.orderNo}`);
     } catch (bookError) {
@@ -436,6 +458,28 @@ export default function Detail() {
     }
   };
 
+  // 分享：复制当前页面链接到剪贴板，复用现有 actionMessage 提示反馈
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href);
+      setActionTone('success');
+      setActionMessage('链接已复制，快去分享吧');
+    } catch {
+      setActionTone('error');
+      setActionMessage('复制失败，请手动复制地址栏链接');
+    }
+  };
+
+  // 查看地图路线：新窗口打开高德地图搜索当前目的地/推荐名称
+  const handleOpenMapRoute = () => {
+    const keyword = (detailType === 'destination' ? destinationDetail?.name : recommendationDetail?.title) || detailTitle;
+    const trimmed = keyword.trim();
+    if (!trimmed) {
+      return;
+    }
+    window.open(`https://uri.amap.com/search?keyword=${encodeURIComponent(trimmed)}`, '_blank', 'noopener');
+  };
+
   if (loading) {
     return (
       <main className="font-body text-on-surface bg-surface min-h-screen flex items-center justify-center">
@@ -471,11 +515,15 @@ export default function Detail() {
         <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-surface"></div>
 
         <header className="absolute top-0 w-full px-6 py-12 flex justify-between items-center z-20">
-          <button onClick={() => navigate(-1)} className="w-10 h-10 flex items-center justify-center rounded-full bg-black/20 backdrop-blur-md text-white hover:bg-black/40 active:scale-95 transition-all">
+          <button onClick={() => navigate(-1)} aria-label="返回" className="w-10 h-10 flex items-center justify-center rounded-full bg-black/20 backdrop-blur-md text-white hover:bg-black/40 active:scale-95 transition-all">
             <span className="material-symbols-outlined text-xl">arrow_back_ios_new</span>
           </button>
           <div className="flex gap-3">
-            <button className="w-10 h-10 flex items-center justify-center rounded-full bg-black/20 backdrop-blur-md text-white hover:bg-black/40 active:scale-95 transition-all">
+            <button
+              className="w-10 h-10 flex items-center justify-center rounded-full bg-black/20 backdrop-blur-md text-white hover:bg-black/40 active:scale-95 transition-all"
+              onClick={handleShare}
+              aria-label="分享"
+            >
               <span className="material-symbols-outlined text-xl">share</span>
             </button>
             <button
@@ -598,7 +646,10 @@ export default function Detail() {
                alt="Map"
              />
              <div className="absolute inset-0 flex items-center justify-center">
-                 <button className="bg-white/90 backdrop-blur text-on-surface px-4 py-2 rounded-full font-bold text-sm shadow-sm flex items-center gap-2 hover:bg-white active:scale-95 transition-all">
+                 <button
+                   className="bg-white/90 backdrop-blur text-on-surface px-4 py-2 rounded-full font-bold text-sm shadow-sm flex items-center gap-2 hover:bg-white active:scale-95 transition-all"
+                   onClick={handleOpenMapRoute}
+                 >
                     <span className="material-symbols-outlined text-[18px]">location_on</span>
                     查看地图路线
                  </button>

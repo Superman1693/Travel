@@ -11,23 +11,30 @@ export default function Favorites() {
   const [favorites, setFavorites] = useState<Favorite[]>([]);
   const [filter, setFilter] = useState<FavoriteFilter>('all');
 
-  const loadFavorites = async () => {
-    try {
-      setLoading(true);
-      setError('');
-      const targetType = filter === 'all' ? undefined : filter;
-      const result = await getFavoriteList(targetType, 1, 200);
-      setFavorites(result.list || []);
-    } catch (loadError) {
-      const message = loadError instanceof Error ? loadError.message : '加载收藏失败';
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
+  // 竞态守卫：筛选切换时 cleanup 置 cancelled，防止过期请求结果覆盖新数据
   useEffect(() => {
-    loadFavorites();
+    let cancelled = false;
+    (async () => {
+      try {
+        setLoading(true);
+        setError('');
+        const targetType = filter === 'all' ? undefined : filter;
+        const result = await getFavoriteList(targetType, 1, 200);
+        if (cancelled) return;
+        setFavorites(result.list || []);
+      } catch (loadError) {
+        if (cancelled) return;
+        const message = loadError instanceof Error ? loadError.message : '加载收藏失败';
+        setError(message);
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [filter]);
 
   const handleRemove = async (item: Favorite) => {
@@ -45,6 +52,7 @@ export default function Favorites() {
       <header className="sticky top-0 z-30 bg-surface/90 backdrop-blur-xl border-b border-surface-container-low px-6 py-4 flex items-center justify-between">
         <button
           type="button"
+          aria-label="返回"
           onClick={() => navigate(-1)}
           className="w-10 h-10 rounded-full flex items-center justify-center text-on-surface-variant hover:bg-surface-container-low"
         >
