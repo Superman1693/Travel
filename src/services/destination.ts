@@ -8,6 +8,8 @@ export interface Destination {
     description: string;
     tag: string;
     tagColor: string;
+    /** 修复 O24：数据来源标注（llm = AI 生成，仅供参考） */
+    dataSource?: string;
 }
 
 export interface DestinationDetail {
@@ -29,6 +31,8 @@ export interface DestinationDetail {
         title: string;
         description: string;
     }[];
+    /** 修复 O24：数据来源标注（llm = AI 生成，价格/评分为估算值） */
+    dataSource?: string;
 }
 
 // 获取精选目的地列表

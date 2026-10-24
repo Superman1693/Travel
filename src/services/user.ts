@@ -17,12 +17,19 @@ export interface RegisterRequest {
     username: string;
     password: string;
     email?: string;
+    phone?: string;
 }
 
 export interface UpdateUserRequest {
     email?: string;
     oldPassword?: string;
     newPassword?: string;
+}
+
+export interface ResetPasswordRequest {
+    username?: string;
+    email?: string;
+    newPassword: string;
 }
 
 export interface LoginResponse {
@@ -48,6 +55,10 @@ export const getCurrentUser = (): Promise<User> => {
 // 修改用户信息
 export const updateUser = (data: UpdateUserRequest): Promise<User> => {
     return api.put('/user/update', data);
+};
+
+export const resetPassword = (data: ResetPasswordRequest): Promise<User> => {
+    return api.post('/user/reset-password', data);
 };
 
 // 上传头像

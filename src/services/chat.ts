@@ -1,4 +1,5 @@
 // SSE 流式对话服务
+import { API_BASE_URL } from '../utils/network';
 
 export interface ChatMessage {
     role: 'user' | 'assistant';
@@ -16,7 +17,7 @@ export const sendMessageStream = async (
 ): Promise<void> => {
     const token = localStorage.getItem('token');
     const params = new URLSearchParams({ message, chatId });
-    const url = `http://localhost:8123/api/ai/travel_app/chat/sse-emitter?${params}`;
+    const url = `${API_BASE_URL}/ai/travel_app/chat/sse-emitter?${params}`;
 
     try {
         const response = await fetch(url, {
@@ -63,7 +64,7 @@ export const sendMessageSync = async (
 ): Promise<string> => {
     const token = localStorage.getItem('token');
     const params = new URLSearchParams({ message, chatId });
-    const url = `http://localhost:8123/api/ai/travel_app/chat/sync?${params}`;
+    const url = `${API_BASE_URL}/ai/travel_app/chat/sync?${params}`;
 
     const response = await fetch(url, {
         headers: {
@@ -78,4 +79,69 @@ export const sendMessageSync = async (
     }
 
     return result.data;
+};
+
+// Manus 智能体流式对话
+export const sendManusMessageStream = async (
+    message: string,
+    onChunk: (chunk: string) => void,
+    onComplete: () => void,
+    onError: (error: Error) => void
+): Promise<void> => {
+    const token = localStorage.getItem('token');
+    const params = new URLSearchParams({ message });
+    const url = `${API_BASE_URL}/ai/manus/chat?${params}`;
+
+    try {
+        const response = await fetch(url, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        });
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        const reader = response.body!.getReader();
+        const decoder = new TextDecoder();
+        let pending = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+                const tail = pending.trim();
+                if (tail.startsWith('data:')) {
+                    const payload = tail.slice(5).trim();
+                    if (payload) onChunk(payload);
+                }
+                onComplete();
+                break;
+            }
+
+            pending += decoder.decode(value, { stream: true });
+            const lines = pending.split(/\r?\n/);
+            pending = lines.pop() ?? '';
+
+            for (const line of lines) {
+                if (!line.startsWith('data:')) continue;
+                const payload = line.slice(5).trim();
+                if (!payload) continue;
+
+                if (payload.startsWith('{')) {
+                    try {
+                        const parsed = JSON.parse(payload);
+                        const chunk = typeof parsed.data === 'string' ? parsed.data : payload;
+                        if (chunk) onChunk(chunk);
+                    } catch {
+                        onChunk(payload);
+                    }
+                } else {
+                    onChunk(payload);
+                }
+            }
+        }
+    } catch (error) {
+        onError(error as Error);
+    }
 };

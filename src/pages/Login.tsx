@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { login } from '../services/user';
+import { normalizeToken, resolveRedirectAfterLogin } from '../utils/auth';
 
 export default function Login() {
   const navigate = useNavigate();
@@ -15,14 +16,23 @@ export default function Login() {
 
   const [username, setUsername] = useState(initialUsername);
   const [password, setPassword] = useState('');
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [error, setError] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+
+  const showToast = (message: string) => {
+    setToastMessage(message);
+    setTimeout(() => setToastMessage(''), 2000);
+  };
+
+  const redirectPath = resolveRedirectAfterLogin(location.search);
 
   useEffect(() => {
     if (localStorage.getItem('token')) {
-      navigate('/', { replace: true });
+      navigate(redirectPath, { replace: true });
     }
-  }, [navigate]);
+  }, [navigate, redirectPath]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -42,9 +52,18 @@ export default function Login() {
       setError('');
       setIsSubmitting(true);
       const result = await login({ username: normalizedUsername, password });
-      localStorage.setItem('token', result.token);
+      const tokenCandidate = normalizeToken(
+        result.token || (result as unknown as { accessToken?: string; jwtToken?: string }).accessToken ||
+        (result as unknown as { accessToken?: string; jwtToken?: string }).jwtToken
+      );
+
+      if (!tokenCandidate) {
+        throw new Error('登录成功但未返回有效 token，请联系后端检查登录接口');
+      }
+
+      localStorage.setItem('token', tokenCandidate);
       localStorage.setItem('userInfo', JSON.stringify(result.user));
-      navigate('/', { replace: true });
+      navigate(redirectPath, { replace: true });
     } catch (submitError) {
       const message = submitError instanceof Error ? submitError.message : '登录失败，请稍后重试';
       setError(message);
@@ -55,6 +74,11 @@ export default function Login() {
 
   return (
     <main className="font-body text-on-surface antialiased min-h-[100dvh] bg-surface flex flex-col relative overflow-hidden">
+      {toastMessage && (
+        <div className="fixed top-20 left-1/2 -translate-x-1/2 z-50 bg-inverse-surface text-inverse-on-surface text-sm px-4 py-2 rounded-full shadow-lg">
+          {toastMessage}
+        </div>
+      )}
       {/* Decorative Background Blob */}
       <div className="absolute top-[-10%] left-[-10%] w-96 h-96 bg-primary-container/40 rounded-full blur-3xl -z-10 pointer-events-none"></div>
       <div className="absolute bottom-[-5%] right-[-10%] w-80 h-80 bg-secondary-container/30 rounded-full blur-3xl -z-10 pointer-events-none"></div>
@@ -62,13 +86,15 @@ export default function Login() {
       {/* Header */}
       <header className="w-full flex justify-between items-center px-6 py-6 z-10">
         <button 
+          type="button"
           onClick={() => navigate(-1)} 
           className="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-container-low active:scale-95 transition-colors text-on-surface-variant cursor-pointer -ml-2"
         >
           <span className="material-symbols-outlined text-2xl">close</span>
         </button>
         <button
-          onClick={() => navigate('/')}
+          type="button"
+          onClick={() => navigate('/', { replace: true })}
           className="text-sm font-bold text-primary active:scale-95 transition-transform"
         >
           随便逛逛
@@ -102,22 +128,29 @@ export default function Login() {
               <div className="flex items-center bg-surface-container-lowest border border-surface-container-high rounded-[1.25rem] px-5 py-3.5 transition-all duration-300 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 focus-within:bg-surface shadow-[0_4px_16px_rgba(0,0,0,0.02)]">
                 <span className="material-symbols-outlined text-outline mr-3 group-focus-within:text-primary transition-colors">lock</span>
                 <input 
-                  type="password" 
+                  type={isPasswordVisible ? 'text' : 'password'}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder="密码" 
                   autoComplete="current-password"
                   className="bg-transparent border-none outline-none w-full text-[15px] font-medium text-on-surface placeholder:text-on-surface-variant/70"
                 />
-                <button type="button" className="text-outline hover:text-on-surface transition-colors">
-                  <span className="material-symbols-outlined text-[20px]">visibility_off</span>
+                <button
+                  type="button"
+                  onClick={() => setIsPasswordVisible((previous) => !previous)}
+                  className="text-outline hover:text-on-surface transition-colors"
+                  aria-label={isPasswordVisible ? '隐藏密码' : '显示密码'}
+                >
+                  <span className="material-symbols-outlined text-[20px]">
+                    {isPasswordVisible ? 'visibility' : 'visibility_off'}
+                  </span>
                 </button>
               </div>
             </div>
           </div>
 
           <div className="flex justify-end pt-1 mb-6">
-            <button type="button" className="text-sm font-bold text-primary hover:underline">
+            <button type="button" onClick={() => navigate('/forgot-password')} className="text-sm font-bold text-primary hover:underline">
               忘记密码？
             </button>
           </div>
@@ -147,17 +180,17 @@ export default function Login() {
           </div>
 
           <div className="flex justify-center gap-5 mb-8">
-            <button className="w-14 h-14 rounded-full bg-[#f4f8f5] border border-[#e1f0e5] flex items-center justify-center hover:bg-[#e8f4eb] active:scale-95 transition-all shadow-sm cursor-pointer text-[#07C160]">
+            <button onClick={() => showToast('微信登录功能开发中')} className="w-14 h-14 rounded-full bg-[#f4f8f5] border border-[#e1f0e5] flex items-center justify-center hover:bg-[#e8f4eb] active:scale-95 transition-all shadow-sm cursor-pointer text-[#07C160]">
               <svg viewBox="0 0 1024 1024" fill="currentColor" className="w-7 h-7">
                 <path d="M682.666667 362.666667A274.56 274.56 0 0 0 426.666667 64C238.293333 64 64 213.333333 64 362.666667c0 85.333333 42.666667 170.666667 106.666667 213.333333-10.666667 21.333333-21.333333 42.666667-21.333333 64 0 10.666667 10.666667 21.333333 21.333333 21.333333 21.333333 0 64-10.666667 106.666667-32 32 10.666667 74.666667 21.333333 128 21.333333 21.333333 0 42.666667-10.666667 64-10.666667-10.666667-21.333333-10.666667-42.666667-10.666667-64C458.666667 471.466667 554.666667 384 682.666667 362.666667zM256 256c21.333333 0 42.666667 10.666667 42.666667 32s-21.333333 32-42.666667 32-42.666667-10.666667-42.666667-32 21.333333-32 42.666667-32 42.666667 10.666667 42.666667 32z m234.666667 64c0 21.333333-21.333333 32-42.666667 32s-42.666667-10.666667-42.666667-32 21.333333-32 42.666667-32 42.666667 10.666667 42.666667 32z m469.333333 192c0-149.333333-149.333333-277.333333-320-277.333333s-320 128-320 277.333333 149.333333 277.333333 320 277.333333c42.666667 0 85.333333-10.666667 128-21.333333 42.666667 21.333333 74.666667 32 96 32 10.666667 0 21.333333-10.666667 21.333333-21.333333 0-21.333333-10.666667-42.666667-21.333333-64 53.333333-42.666667 96-106.666667 96-202.666667z m-405.333333-42.666667c-21.333333 0-32-10.666667-32-32s10.666667-32 32-32 32 10.666667 32 32-10.666667 32-32 32z m192 0c-21.333333 0-32-10.666667-32-32s10.666667-32 32-32 32 10.666667 32 32-10.666667 32-32 32z"/>
               </svg>
             </button>
-            <button className="w-14 h-14 rounded-full bg-[#000000] flex items-center justify-center hover:bg-[#333333] active:scale-95 transition-all shadow-[0_4px_12px_rgba(0,0,0,0.15)] cursor-pointer text-white">
+            <button onClick={() => showToast('Apple 登录功能开发中')} className="w-14 h-14 rounded-full bg-[#000000] flex items-center justify-center hover:bg-[#333333] active:scale-95 transition-all shadow-[0_4px_12px_rgba(0,0,0,0.15)] cursor-pointer text-white">
               <svg viewBox="0 0 384 512" fill="currentColor" className="w-[20px] h-[20px] mb-[2px]">
                 <path d="M318.7 268.7c-.2-36.7 16.4-64.4 50-84.8-18.8-26.9-47.2-41.7-84.7-44.6-35.5-2.8-74.3 20.7-88.5 20.7-15 0-49.4-19.7-76.4-19.7C63.3 141.2 4 184.8 4 273.5q0 39.3 14.4 81.2c12.8 36.7 59 126.7 107.2 125.2 25.2-.6 43-17.9 75.8-17.9 31.8 0 48.3 17.9 76.4 17.9 48.6-.7 90.4-82.5 102.6-119.3-65.2-30.7-61.7-90-61.7-91.9zm-56.6-164.2c27.3-32.4 24.8-61.9 24-72.5-24.1 1.4-52 16.4-67.9 34.9-17.5 19.8-27.8 44.3-25.6 71.9 26.1 2 49.9-11.4 69.5-34.3z" />
               </svg>
             </button>
-            <button className="w-14 h-14 rounded-full bg-surface-container-lowest border border-surface-container flex items-center justify-center hover:bg-surface-container-low active:scale-95 transition-all shadow-sm cursor-pointer text-outline-variant">
+            <button onClick={() => showToast('邮箱登录功能开发中')} className="w-14 h-14 rounded-full bg-surface-container-lowest border border-surface-container flex items-center justify-center hover:bg-surface-container-low active:scale-95 transition-all shadow-sm cursor-pointer text-outline-variant">
               <span className="material-symbols-outlined text-[24px]">mail</span>
             </button>
           </div>

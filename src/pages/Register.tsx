@@ -9,6 +9,8 @@ export default function Register() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [isPasswordVisible, setIsPasswordVisible] = useState(false);
+  const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] = useState(false);
   const [agreed, setAgreed] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
@@ -24,10 +26,16 @@ export default function Register() {
     event.preventDefault();
 
     const normalizedUsername = username.trim();
+    const normalizedPhone = phone.trim();
     const normalizedEmail = email.trim();
 
     if (normalizedUsername.length < 3 || normalizedUsername.length > 32) {
       setError('用户名长度需在 3-32 位之间');
+      return;
+    }
+
+    if (normalizedPhone && !/^1\d{10}$/.test(normalizedPhone)) {
+      setError('请输入有效的 11 位手机号');
       return;
     }
 
@@ -54,6 +62,7 @@ export default function Register() {
         username: normalizedUsername,
         password,
         email: normalizedEmail || undefined,
+        phone: normalizedPhone || undefined,
       });
       setSuccess('注册成功，正在跳转到登录页');
       navigate('/login', {
@@ -138,15 +147,22 @@ export default function Register() {
               <div className="flex items-center bg-surface-container-lowest border border-surface-container-high rounded-[1.25rem] px-5 py-3.5 transition-all duration-300 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 focus-within:bg-surface shadow-[0_4px_16px_rgba(0,0,0,0.02)]">
                 <span className="material-symbols-outlined text-outline mr-3 group-focus-within:text-primary transition-colors">lock</span>
                 <input 
-                  type="password" 
+                  type={isPasswordVisible ? 'text' : 'password'}
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
                   placeholder="设置密码" 
                   autoComplete="new-password"
                   className="bg-transparent border-none outline-none w-full text-[15px] font-medium text-on-surface placeholder:text-on-surface-variant/70"
                 />
-                <button type="button" className="text-outline hover:text-on-surface transition-colors">
-                  <span className="material-symbols-outlined text-[20px]">visibility_off</span>
+                <button
+                  type="button"
+                  onClick={() => setIsPasswordVisible((previous) => !previous)}
+                  className="text-outline hover:text-on-surface transition-colors"
+                  aria-label={isPasswordVisible ? '隐藏密码' : '显示密码'}
+                >
+                  <span className="material-symbols-outlined text-[20px]">
+                    {isPasswordVisible ? 'visibility' : 'visibility_off'}
+                  </span>
                 </button>
               </div>
             </div>
@@ -154,15 +170,22 @@ export default function Register() {
               <div className="flex items-center bg-surface-container-lowest border border-surface-container-high rounded-[1.25rem] px-5 py-3.5 transition-all duration-300 focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20 focus-within:bg-surface shadow-[0_4px_16px_rgba(0,0,0,0.02)]">
                 <span className="material-symbols-outlined text-outline mr-3 group-focus-within:text-primary transition-colors">lock</span>
                 <input 
-                  type="password" 
+                  type={isConfirmPasswordVisible ? 'text' : 'password'}
                   value={confirmPassword}
                   onChange={(event) => setConfirmPassword(event.target.value)}
                   placeholder="再次输入密码" 
                   autoComplete="new-password"
                   className="bg-transparent border-none outline-none w-full text-[15px] font-medium text-on-surface placeholder:text-on-surface-variant/70"
                 />
-                <button type="button" className="text-outline hover:text-on-surface transition-colors">
-                  <span className="material-symbols-outlined text-[20px]">visibility_off</span>
+                <button
+                  type="button"
+                  onClick={() => setIsConfirmPasswordVisible((previous) => !previous)}
+                  className="text-outline hover:text-on-surface transition-colors"
+                  aria-label={isConfirmPasswordVisible ? '隐藏确认密码' : '显示确认密码'}
+                >
+                  <span className="material-symbols-outlined text-[20px]">
+                    {isConfirmPasswordVisible ? 'visibility' : 'visibility_off'}
+                  </span>
                 </button>
               </div>
             </div>

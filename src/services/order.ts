@@ -6,7 +6,8 @@ export interface Order {
     productName: string;
     productImage: string;
     totalAmount: number;
-    status: 'pending_payment' | 'pending_travel' | 'completed' | 'refund';
+    // 修复 E33/D14：后端取消订单使用独立状态 cancelled，与售后 refund 区分
+    status: 'pending_payment' | 'pending_travel' | 'completed' | 'refund' | 'cancelled';
     createTime: string;
 }
 
@@ -15,6 +16,7 @@ export interface OrderDetail extends Order {
     startDate: string;
     contactName: string;
     contactPhone: string;
+    cancelReason?: string;
 }
 
 export interface OrderListResponse {
@@ -61,4 +63,14 @@ export const getOrderDetail = (orderId: number): Promise<OrderDetail> => {
 // 取消订单
 export const cancelOrder = (orderId: number, reason?: string): Promise<boolean> => {
     return api.post(`/order/${orderId}/cancel`, { reason });
+};
+
+// 订单支付
+export const payOrder = (orderId: number): Promise<boolean> => {
+    return api.post(`/order/${orderId}/pay`);
+};
+
+// 申请退款/售后
+export const applyAfterSale = (orderId: number, reason: string): Promise<boolean> => {
+    return api.post(`/order/${orderId}/after-sale`, { reason });
 };

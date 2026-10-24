@@ -5,20 +5,24 @@ import { getFeaturedDestinations, type Destination } from '../services';
 export default function Destinations() {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
   const [destinations, setDestinations] = useState<Destination[]>([]);
 
-  useEffect(() => {
-    const fetchDestinations = async () => {
-      try {
-        const data = await getFeaturedDestinations(30);
-        setDestinations(data);
-      } catch (error) {
-        console.error('获取目的地列表失败:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
+  const fetchDestinations = async () => {
+    try {
+      setLoading(true);
+      setError('');
+      const data = await getFeaturedDestinations(30);
+      setDestinations(data);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '获取目的地列表失败';
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchDestinations();
   }, []);
 
@@ -52,14 +56,28 @@ export default function Destinations() {
           <p className="text-sm text-on-surface-variant">正在加载目的地...</p>
         )}
 
-        {!loading && destinations.length === 0 && (
+        {error && !loading && (
+          <div className="flex flex-col items-center justify-center py-12 gap-4">
+            <span className="material-symbols-outlined text-4xl text-error">error</span>
+            <p className="text-error text-sm">{error}</p>
+            <button
+              type="button"
+              onClick={fetchDestinations}
+              className="px-4 py-2 rounded-lg bg-primary text-on-primary text-sm font-semibold"
+            >
+              重试
+            </button>
+          </div>
+        )}
+
+        {!loading && !error && destinations.length === 0 && (
           <p className="text-sm text-on-surface-variant">暂无目的地数据</p>
         )}
 
         {destinations.map((destination) => (
           <Link
             key={destination.id}
-            to={`/detail?id=${destination.id}`}
+            to={`/detail?type=destination&id=${destination.id}`}
             className="block rounded-3xl overflow-hidden bg-surface-container-low shadow-[0_8px_24px_rgba(35,44,81,0.08)] active:scale-[0.99] transition-transform"
           >
             <div className="relative h-56">

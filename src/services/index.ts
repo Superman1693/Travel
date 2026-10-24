@@ -8,4 +8,7 @@ export * from './order';
 export * from './favorite';
 export * from './search';
 export * from './chat';
+export * from './location';
+export * from './file';
+export * from './agentTrace';
 export { default as api } from './api';
