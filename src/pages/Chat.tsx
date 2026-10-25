@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { sendMessageStream } from '../services';
+import { sendRagMessageStream, sendMessageStream } from '../services';
 import { type AiSession, buildSessionId, inferSessionTitle, readSessions, removeSession, upsertSession, writeSessions } from '../utils/aiSession';
 import { buildUserScopedStorageKey } from '../utils/auth';
 import defaultAvatar from '../assets/unnamed.png';
@@ -10,6 +10,16 @@ interface Message {
   content: string;
   timestamp: string;
 }
+
+// 对话模式：自由对话走 /ai/travel_app/chat，知识问答走 /ai/rag/chat（基于旅游知识库）
+type ChatMode = 'free' | 'rag';
+
+const CHAT_MODES: Array<{ value: ChatMode; label: string }> = [
+  { value: 'free', label: '自由对话' },
+  { value: 'rag', label: '知识问答' },
+];
+
+const RAG_MESSAGE_PREFIX = '📚 ';
 
 const WELCOME_MESSAGE: Message = {
   role: 'assistant',
@@ -63,6 +73,8 @@ export default function Chat() {
   const [inputMessage, setInputMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [currentAiMessage, setCurrentAiMessage] = useState('');
+  // 对话模式（React state，不持久化；两种模式的消息都进当前会话）
+  const [chatMode, setChatMode] = useState<ChatMode>('free');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   // 修复 E50：标记「本次 messages 变化来自 sessions 同步」，
   // 让回写 effect 跳过这一次，避免 sessions ↔ messages 双向同步形成渲染循环。
@@ -160,8 +172,11 @@ export default function Chat() {
 
     let accumulated = '';
 
+    // 知识问答模式走 RAG 接口，回复气泡加前缀标识区分来源
+    const sendStream = chatMode === 'rag' ? sendRagMessageStream : sendMessageStream;
+
     try {
-      await sendMessageStream(
+      await sendStream(
         trimmed,
         activeSessionId,
         (chunk) => {
@@ -169,7 +184,8 @@ export default function Chat() {
           setCurrentAiMessage(accumulated);
         },
         () => {
-          const finalMessage = accumulated.trim() || '抱歉，我暂时没有生成有效回复，请稍后重试。';
+          const rawReply = accumulated.trim() || '抱歉，我暂时没有生成有效回复，请稍后重试。';
+          const finalMessage = chatMode === 'rag' ? `${RAG_MESSAGE_PREFIX}${rawReply}` : rawReply;
           setMessages((prev) => [
             ...prev,
             {
@@ -441,6 +457,30 @@ export default function Chat() {
       </div>
 
       <div className="bg-surface/80 backdrop-blur-xl border-t border-surface-container px-4 py-3 fixed bottom-0 w-full z-40 pb-safe">
+        {/* 模式切换：两个胶囊 tab，仿页面现有 segmented/胶囊样式 */}
+        <div className="flex items-center gap-2 mb-2">
+          <div className="inline-flex rounded-full bg-surface-container-low p-1">
+            {CHAT_MODES.map((mode) => (
+              <button
+                key={mode.value}
+                type="button"
+                className={`px-3.5 py-1.5 rounded-full text-xs font-semibold transition-colors cursor-pointer ${
+                  chatMode === mode.value
+                    ? 'bg-primary text-white shadow-sm'
+                    : 'text-on-surface-variant hover:text-on-surface'
+                }`}
+                onClick={() => setChatMode(mode.value)}
+                disabled={isTyping}
+              >
+                {mode.label}
+              </button>
+            ))}
+          </div>
+          {chatMode === 'rag' && (
+            <span className="text-[11px] text-on-surface-variant truncate">基于旅游知识库回答常见问题</span>
+          )}
+        </div>
+
         <div className="flex items-center gap-2 bg-surface-container-low rounded-[1.5rem] p-2 focus-within:ring-2 ring-primary/30 transition-shadow">
           <button className="w-10 h-10 flex flex-shrink-0 items-center justify-center text-on-surface-variant hover:text-primary transition-colors hover:bg-surface-container-highest rounded-full active:scale-95 cursor-pointer">
             <span className="material-symbols-outlined">add_circle</span>
@@ -448,7 +488,7 @@ export default function Chat() {
 
           <textarea
             className="w-full bg-transparent border-none outline-none resize-none max-h-32 min-h-[44px] py-2 text-sm leading-6 font-medium text-on-surface placeholder:text-on-surface-variant/70 no-scrollbar"
-            placeholder="输入您想去的地方或需求..."
+            placeholder={chatMode === 'rag' ? '问问旅游知识库，如：成都最佳旅游季节...' : '输入您想去的地方或需求...'}
             rows={1}
             value={inputMessage}
             onChange={(e) => setInputMessage(e.target.value)}

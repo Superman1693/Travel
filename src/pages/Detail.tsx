@@ -1,19 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { Star } from 'lucide-react';
 import {
+  addDestinationReview,
   addPlace,
   addFavorite,
   createOrder,
   createItinerary,
+  deleteDestinationReview,
   getDestinationDetail,
+  getDestinationReviews,
   getFavoriteList,
   getHotRecommendations,
   getItineraryDetail,
   getItineraryList,
   getRecommendationById,
   removeFavorite,
+  updateDestinationReview,
   type AddPlaceRequest,
   type DestinationDetail,
+  type DestinationReview,
   type ItineraryDetail,
   type Itinerary,
   type Recommendation,
@@ -30,6 +36,24 @@ interface DisplayHighlight {
 
 type ActionNoticeTone = 'success' | 'error';
 
+const REVIEW_PAGE_SIZE = 5;
+const REVIEW_MAX_LENGTH = 500;
+
+// 星形展示（只读）：用于用户评分摘要与评价列表
+const renderStars = (value: number, sizeClass: string = 'text-[16px]') => (
+  <span className="flex items-center gap-0.5" aria-label={`${value} 星`}>
+    {[1, 2, 3, 4, 5].map((star) => (
+      <span
+        key={star}
+        className={`material-symbols-outlined ${sizeClass} ${star <= Math.round(value) ? 'text-amber-400' : 'text-outline-variant'}`}
+        style={{ fontVariationSettings: "'FILL' 1" }}
+      >
+        star
+      </span>
+    ))}
+  </span>
+);
+
 export default function Detail() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -43,6 +67,18 @@ export default function Detail() {
   const [isFavoriteLoading, setIsFavoriteLoading] = useState(false);
   const [destinationDetail, setDestinationDetail] = useState<DestinationDetail | null>(null);
   const [recommendationDetail, setRecommendationDetail] = useState<Recommendation | null>(null);
+
+  // 功能4：用户评价状态（仅 destination 详情使用）
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [reviews, setReviews] = useState<DestinationReview[]>([]);
+  const [reviewsTotal, setReviewsTotal] = useState(0);
+  const [reviewsPage, setReviewsPage] = useState(1);
+  const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [reviewsLoadingMore, setReviewsLoadingMore] = useState(false);
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [editingReviewId, setEditingReviewId] = useState<number | null>(null);
+  const [reviewRating, setReviewRating] = useState(0);
+  const [reviewContent, setReviewContent] = useState('');
 
   const searchParams = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const detailType: DetailType = searchParams.get('type') === 'recommendation' ? 'recommendation' : 'destination';
@@ -125,6 +161,138 @@ export default function Detail() {
     fetchFavoriteState();
   }, [detailType, id]);
 
+  // 功能4：加载评价列表（第 1 页覆盖，翻页追加）
+  const loadReviews = async (page: number) => {
+    if (!id || detailType !== 'destination') {
+      return;
+    }
+
+    try {
+      if (page === 1) {
+        setReviewsLoading(true);
+      } else {
+        setReviewsLoadingMore(true);
+      }
+      const result = await getDestinationReviews(id, page, REVIEW_PAGE_SIZE);
+      const list = result.list || [];
+      setReviews((prev) => (page === 1 ? list : [...prev, ...list]));
+      setReviewsTotal(result.total || 0);
+      setReviewsPage(page);
+    } catch {
+      // 评价加载失败不阻塞详情主内容，保持已有列表
+    } finally {
+      setReviewsLoading(false);
+      setReviewsLoadingMore(false);
+    }
+  };
+
+  const resetReviewForm = () => {
+    setEditingReviewId(null);
+    setReviewRating(0);
+    setReviewContent('');
+  };
+
+  useEffect(() => {
+    setIsLoggedIn(hasValidToken());
+    setReviews([]);
+    setReviewsTotal(0);
+    setReviewsPage(1);
+    resetReviewForm();
+
+    if (detailType === 'destination' && id) {
+      loadReviews(1);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detailType, id]);
+
+  const refreshUserRatingSummary = async () => {
+    try {
+      const fresh = await getDestinationDetail(id);
+      setDestinationDetail(fresh);
+    } catch {
+      // 摘要刷新失败不提示，列表已是最新的
+    }
+  };
+
+  const handleSubmitReview = async () => {
+    if (!ensureLogin()) {
+      return;
+    }
+
+    const trimmed = reviewContent.trim();
+    if (reviewRating < 1) {
+      setActionTone('error');
+      setActionMessage('请先点选评分（1-5 星）');
+      return;
+    }
+    if (!trimmed) {
+      setActionTone('error');
+      setActionMessage('请填写评价内容');
+      return;
+    }
+
+    try {
+      setSubmittingReview(true);
+      setActionMessage('');
+      if (editingReviewId) {
+        await updateDestinationReview(editingReviewId, { destinationId: id, rating: reviewRating, content: trimmed });
+        setActionTone('success');
+        setActionMessage('评价已更新');
+      } else {
+        await addDestinationReview({ destinationId: id, rating: reviewRating, content: trimmed });
+        setActionTone('success');
+        setActionMessage('评价发表成功');
+      }
+      resetReviewForm();
+      setIsLoggedIn(hasValidToken());
+      await Promise.all([loadReviews(1), refreshUserRatingSummary()]);
+    } catch (reviewError) {
+      setActionTone('error');
+      setActionMessage(reviewError instanceof Error ? reviewError.message : '评价提交失败，请稍后重试');
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
+
+  const handleStartEditReview = (review: DestinationReview) => {
+    setEditingReviewId(review.id);
+    setReviewRating(review.rating);
+    setReviewContent(review.content);
+    setActionTone('success');
+    setActionMessage('正在编辑你的评价，修改后记得保存');
+  };
+
+  const handleDeleteReview = async (reviewId: number) => {
+    if (!ensureLogin()) {
+      return;
+    }
+    const confirmed = window.confirm('确认删除这条评价吗？');
+    if (!confirmed) return;
+
+    try {
+      setSubmittingReview(true);
+      setActionMessage('');
+      await deleteDestinationReview(reviewId);
+      if (editingReviewId === reviewId) {
+        resetReviewForm();
+      }
+      setIsLoggedIn(hasValidToken());
+      setActionTone('success');
+      setActionMessage('评价已删除');
+      await Promise.all([loadReviews(1), refreshUserRatingSummary()]);
+    } catch (deleteError) {
+      setActionTone('error');
+      setActionMessage(deleteError instanceof Error ? deleteError.message : '删除评价失败，请稍后重试');
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
+
+  const handleLoadMoreReviews = () => {
+    if (reviewsLoadingMore) return;
+    loadReviews(reviewsPage + 1);
+  };
+
   const ensureLogin = (): boolean => {
     if (hasValidToken()) {
       return true;
@@ -148,6 +316,10 @@ export default function Detail() {
   const reviewCount = detailType === 'destination' ? destinationDetail?.reviewCount || 0 : recommendationDetail?.reviewCount || 0;
   // 修复 O24：数据来源标注（llm = AI 生成，价格/评分为估算值）
   const dataSource = detailType === 'destination' ? destinationDetail?.dataSource : recommendationDetail?.dataSource;
+  // 功能4：用户评分摘要（与 AI 平台评分区分）
+  const userAvgRating = detailType === 'destination' ? destinationDetail?.userAvgRating ?? null : null;
+  const userReviewCount = detailType === 'destination' ? destinationDetail?.userReviewCount || 0 : 0;
+  const hasMoreReviews = reviews.length < reviewsTotal;
   const coverImage = detailType === 'destination'
     ? destinationDetail?.imageUrl || ''
     : recommendationDetail?.imageUrl || '';
@@ -565,6 +737,8 @@ export default function Detail() {
 
           <div className="flex items-center gap-4 text-sm font-semibold">
             <div className="flex items-center text-tertiary">
+              {/* 功能4：平台评分（AI 生成口径）与用户评分分开展示 */}
+              <span className="text-[10px] font-bold text-on-surface-variant bg-surface-container-low px-1.5 py-0.5 rounded mr-1.5 whitespace-nowrap">平台评分</span>
               <span className="material-symbols-outlined text-[18px] mr-1" style={{fontVariationSettings: "'FILL' 1"}}>star</span>
               <span className="text-base font-bold text-on-surface mr-1">{rating.toFixed(1)}</span>
               <span className="text-on-surface-variant font-medium underline decoration-surface-container-high underline-offset-2 cursor-pointer">
@@ -637,6 +811,174 @@ export default function Detail() {
             ))}
           </div>
         </section>
+
+        {/* 功能4：用户评价区（仅目的地详情） */}
+        {detailType === 'destination' && (
+          <section>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="text-xl font-bold font-headline">用户评价</h2>
+              <span className="text-xs text-on-surface-variant">{userReviewCount} 条</span>
+            </div>
+
+            <div className="bg-surface-container-lowest rounded-2xl p-5 shadow-[0_4px_24px_rgba(35,44,81,0.04)] space-y-5">
+              <div className="flex items-center gap-3 flex-wrap">
+                <span className="text-[10px] font-bold text-on-surface-variant bg-surface-container px-1.5 py-0.5 rounded whitespace-nowrap">用户评分</span>
+                {userAvgRating != null && userReviewCount > 0 ? (
+                  <>
+                    {renderStars(userAvgRating, 'text-[18px]')}
+                    <span className="text-base font-bold text-on-surface">{userAvgRating.toFixed(1)}</span>
+                    <span className="text-xs text-on-surface-variant">来自 {userReviewCount} 位用户的真实评价</span>
+                  </>
+                ) : (
+                  <span className="text-sm text-on-surface-variant">暂无用户评价</span>
+                )}
+              </div>
+
+              <hr className="border-surface-container-low" />
+
+              {isLoggedIn ? (
+                <form
+                  className="space-y-3"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    handleSubmitReview();
+                  }}
+                >
+                  <div className="flex items-center gap-1.5">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button
+                        key={star}
+                        type="button"
+                        aria-label={`${star} 星`}
+                        className="cursor-pointer active:scale-90 transition-transform"
+                        onClick={() => setReviewRating(star)}
+                      >
+                        <Star
+                          size={26}
+                          className={star <= reviewRating ? 'text-amber-400' : 'text-outline-variant'}
+                          fill={star <= reviewRating ? 'currentColor' : 'none'}
+                        />
+                      </button>
+                    ))}
+                    <span className="text-xs text-on-surface-variant ml-2">
+                      {editingReviewId ? '正在修改你的评价' : '为这个目的地打分'}
+                    </span>
+                  </div>
+                  <textarea
+                    className="w-full rounded-xl border border-surface-container-high bg-surface p-3 text-sm outline-none focus:ring-2 ring-primary/30 resize-none"
+                    rows={3}
+                    maxLength={REVIEW_MAX_LENGTH}
+                    placeholder="分享你的真实体验（500 字以内）..."
+                    value={reviewContent}
+                    onChange={(e) => setReviewContent(e.target.value)}
+                  />
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-xs text-on-surface-variant">{reviewContent.length}/{REVIEW_MAX_LENGTH}</span>
+                    <div className="flex gap-2">
+                      {editingReviewId && (
+                        <button
+                          type="button"
+                          className="px-4 py-2 rounded-full border border-outline-variant text-on-surface-variant text-sm font-bold active:scale-95 transition-all"
+                          onClick={resetReviewForm}
+                        >
+                          取消
+                        </button>
+                      )}
+                      <button
+                        type="submit"
+                        disabled={submittingReview}
+                        className="px-4 py-2 rounded-full bg-primary text-white text-sm font-bold active:scale-95 transition-all disabled:opacity-60"
+                      >
+                        {submittingReview ? '提交中...' : editingReviewId ? '保存修改' : '发表评价'}
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              ) : (
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <p className="text-sm text-on-surface-variant">登录后可以发表和修改你的评价</p>
+                  <button
+                    type="button"
+                    className="px-4 py-2 rounded-full bg-primary text-white text-sm font-bold active:scale-95 transition-all"
+                    onClick={() => ensureLogin()}
+                  >
+                    去登录
+                  </button>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                {reviewsLoading ? (
+                  <p className="text-sm text-on-surface-variant">评价加载中...</p>
+                ) : reviews.length === 0 ? (
+                  <p className="text-sm text-on-surface-variant">还没有评价，来发表第一条吧</p>
+                ) : (
+                  reviews.map((review) => (
+                    <div
+                      key={review.id}
+                      className={`rounded-xl p-4 ${review.mine ? 'bg-primary-container/20 border border-primary/20' : 'bg-surface'}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          {review.avatar ? (
+                            <img
+                              src={review.avatar}
+                              alt={review.username || '用户头像'}
+                              className="w-8 h-8 rounded-full object-cover shrink-0"
+                              referrerPolicy="no-referrer"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-primary text-xs font-bold shrink-0">
+                              {(review.username || '旅').slice(0, 1)}
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-sm font-bold text-on-surface truncate">{review.username || '匿名用户'}</p>
+                            <div className="flex items-center gap-1.5 mt-0.5">
+                              {renderStars(review.rating, 'text-[12px]')}
+                              <span className="text-[10px] text-on-surface-variant">{(review.createTime || '').slice(0, 10)}</span>
+                            </div>
+                          </div>
+                        </div>
+                        {review.mine && (
+                          <div className="flex gap-1.5 shrink-0">
+                            <button
+                              type="button"
+                              className="text-xs font-bold px-2.5 py-1.5 rounded-full bg-primary-container/40 text-primary active:scale-95 transition-transform"
+                              onClick={() => handleStartEditReview(review)}
+                            >
+                              编辑
+                            </button>
+                            <button
+                              type="button"
+                              className="text-xs font-bold px-2.5 py-1.5 rounded-full bg-error/10 text-error active:scale-95 transition-transform"
+                              onClick={() => handleDeleteReview(review.id)}
+                              disabled={submittingReview}
+                            >
+                              删除
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-sm text-on-surface mt-2 leading-relaxed whitespace-pre-wrap break-words">{review.content}</p>
+                    </div>
+                  ))
+                )}
+
+                {!reviewsLoading && hasMoreReviews && (
+                  <button
+                    type="button"
+                    className="w-full py-2.5 rounded-full border border-outline-variant text-primary text-sm font-bold hover:bg-primary-container/20 active:scale-95 transition-all disabled:opacity-60"
+                    onClick={handleLoadMoreReviews}
+                    disabled={reviewsLoadingMore}
+                  >
+                    {reviewsLoadingMore ? '加载中...' : `加载更多评价（共 ${reviewsTotal} 条）`}
+                  </button>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="pb-10">
           <div className="w-full h-48 bg-surface-container rounded-2xl overflow-hidden relative">

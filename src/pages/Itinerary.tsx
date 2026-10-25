@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
+import ItineraryMap, { hasAmapKey } from '../components/ItineraryMap';
 import {
   addPlace,
   createItinerary,
@@ -9,6 +10,8 @@ import {
   getItineraryDetail,
   getItineraryList,
   getWeather,
+  reorderPlaces,
+  shareItinerary,
   updateItinerary,
   type AddPlaceRequest,
   type Itinerary,
@@ -74,7 +77,14 @@ const toTagArray = (raw: string) => raw
   .map((tag) => tag.trim())
   .filter(Boolean);
 
-const sortByTime = (places: ItineraryPlace[]) => [...places].sort((a, b) => a.time.localeCompare(b.time));
+// 展示顺序：全组都有 sortOrder（reorder 持久化过）按 sortOrder 排，否则回退按时间排
+const sortByTime = (places: ItineraryPlace[]) => {
+  const hasSortOrder = places.length > 0 && places.every((place) => typeof place.sortOrder === 'number');
+  if (hasSortOrder) {
+    return [...places].sort((a, b) => (a.sortOrder as number) - (b.sortOrder as number));
+  }
+  return [...places].sort((a, b) => a.time.localeCompare(b.time));
+};
 
 const buildPlacePayload = (form: PlaceFormState): AddPlaceRequest => ({
   dayNumber: Number(form.dayNumber),
@@ -230,6 +240,18 @@ export default function Itinerary() {
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [budgetLoading, setBudgetLoading] = useState(false);
   const [priceCatalog, setPriceCatalog] = useState<Array<{ title: string; price: number }>>([]);
+
+  // 功能3：分享（后端幂等，重复点击复用已生成 token）
+  const [sharing, setSharing] = useState(false);
+  const [notice, setNotice] = useState('');
+
+  // 功能2：HTML5 拖拽排序（同一 day 分组内）
+  const [dragPlaceId, setDragPlaceId] = useState<number | null>(null);
+  const [dragOverPlaceId, setDragOverPlaceId] = useState<number | null>(null);
+
+  // 功能5：人均预算行内编辑
+  const [budgetEditing, setBudgetEditing] = useState(false);
+  const [budgetInput, setBudgetInput] = useState('');
 
   const loadDetail = async (id: number) => {
     const data = await getItineraryDetail(id);
@@ -474,6 +496,112 @@ export default function Itinerary() {
     }
   };
 
+  // 功能3：分享行程 → 生成 sharePath → 拼 hash 链接复制到剪贴板
+  const handleShare = async () => {
+    if (!currentItineraryId || !detail) {
+      setError('请先创建或选择一个行程');
+      return;
+    }
+
+    setSharing(true);
+    setError('');
+    setNotice('');
+    try {
+      const result = await shareItinerary(currentItineraryId);
+      const link = `${window.location.origin}${window.location.pathname}#${result.sharePath}`;
+      try {
+        await navigator.clipboard.writeText(link);
+        setNotice('分享链接已复制，快去分享吧');
+      } catch {
+        // 剪贴板不可用（非安全上下文等）时降级为手动复制
+        window.prompt('复制失败，请手动复制以下分享链接', link);
+      }
+    } catch (shareError) {
+      setError(shareError instanceof Error ? shareError.message : '生成分享链接失败');
+    } finally {
+      setSharing(false);
+    }
+  };
+
+  // 功能2：拖拽排序 —— 松手后本地重排（乐观更新）→ 调 reorder 持久化，失败回滚
+  const handleDropReorder = async (targetPlaceId: number) => {
+    const sourceId = dragPlaceId;
+    setDragPlaceId(null);
+    setDragOverPlaceId(null);
+    if (!sourceId || sourceId === targetPlaceId || !detail || !activeDayData) return;
+
+    const places = activeDayData.places;
+    const fromIndex = places.findIndex((place) => place.id === sourceId);
+    const toIndex = places.findIndex((place) => place.id === targetPlaceId);
+    if (fromIndex < 0 || toIndex < 0) return;
+
+    const next = [...places];
+    const [moved] = next.splice(fromIndex, 1);
+    next.splice(toIndex, 0, moved);
+    const normalizedNext = next.map((place, index) => ({ ...place, sortOrder: index }));
+
+    // 乐观更新：仅调整当前 day 的地点顺序
+    setDetail((prev) => {
+      if (!prev) return prev;
+      return {
+        ...prev,
+        days: prev.days.map((day) =>
+          day.dayNumber === activeDayData.dayNumber ? { ...day, places: normalizedNext } : day
+        ),
+      };
+    });
+
+    try {
+      await reorderPlaces({
+        itineraryId: detail.id,
+        items: normalizedNext.map((place, index) => ({ placeId: place.id, sortOrder: index })),
+      });
+    } catch (reorderError) {
+      setError(reorderError instanceof Error ? reorderError.message : '排序保存失败，已还原');
+      // 回滚：重新拉取服务端顺序
+      try {
+        await loadDetail(detail.id);
+      } catch {
+        // 回滚失败时保留本地重排结果
+      }
+    }
+  };
+
+  // 功能5：人均预算行内编辑保存
+  const handleStartEditBudget = () => {
+    setBudgetInput(detail?.budgetPerPerson != null ? String(detail.budgetPerPerson) : '');
+    setBudgetEditing(true);
+  };
+
+  const handleSaveBudget = async () => {
+    if (!detail) return;
+    const trimmed = budgetInput.trim();
+    const parsed = Number(trimmed);
+    if (!trimmed || !Number.isFinite(parsed) || parsed < 0) {
+      setError('请输入有效的预算金额');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+    try {
+      const updated = await updateItinerary(detail.id, { budgetPerPerson: Math.round(parsed) });
+      const nextBudgetPerPerson = updated?.budgetPerPerson ?? Math.round(parsed);
+      setDetail((prev) =>
+        prev ? { ...prev, budgetPerPerson: nextBudgetPerPerson, estimatedBudget: updated?.estimatedBudget ?? null } : prev
+      );
+      setItineraries((prev) =>
+        prev.map((item) => (item.id === detail.id ? { ...item, budgetPerPerson: nextBudgetPerPerson } : item))
+      );
+      setBudgetEditing(false);
+      setBudgetInput('');
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : '保存预算失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const budgetBreakdown = useMemo(() => {
     const places = activeDayData?.places || [];
     const travelers = detail?.travelers || 1;
@@ -511,6 +639,22 @@ export default function Itinerary() {
   }, [activeDayData, detail?.travelers, priceCatalog]);
 
   const estimatedBudget = budgetBreakdown.total;
+
+  // 功能5：预算卡片数据 —— 优先用后端 estimatedBudget，缺省时按 人均预算×人数×天数 本地估算
+  const dayCount = days.length || 1;
+  const effectiveEstimatedBudget = useMemo(() => {
+    if (detail?.estimatedBudget != null && Number.isFinite(detail.estimatedBudget)) {
+      return Math.round(detail.estimatedBudget);
+    }
+    if (detail?.budgetPerPerson != null && Number.isFinite(detail.budgetPerPerson)) {
+      return Math.round(detail.budgetPerPerson * (detail.travelers || 1) * dayCount);
+    }
+    return null;
+  }, [detail?.estimatedBudget, detail?.budgetPerPerson, detail?.travelers, dayCount]);
+  const perPersonBudget = effectiveEstimatedBudget != null && (detail?.travelers || 0) > 0
+    ? Math.round(effectiveEstimatedBudget / (detail?.travelers || 1))
+    : null;
+  const perDayBudget = effectiveEstimatedBudget != null ? Math.round(effectiveEstimatedBudget / dayCount) : null;
 
   const weatherText = useMemo(() => {
     if (!detail?.destination) return '暂无天气数据';
@@ -602,17 +746,29 @@ export default function Itinerary() {
                 {detail ? `${formatDateLabel(detail.startDate)} - ${formatDateLabel(detail.endDate)} · ${detail.travelers}人` : '创建后即可开始规划'}
               </p>
             </div>
-            <button
-              type="button"
-              className="w-9 h-9 rounded-full bg-white/70 text-[#445184] flex items-center justify-center"
-              onClick={() => {
-                setEditingItineraryId(null);
-                setItineraryForm(EMPTY_ITINERARY_FORM);
-                setShowCreateItinerary((prev) => !prev);
-              }}
-            >
-              <span className="material-symbols-outlined text-[18px]">add</span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                className="w-9 h-9 rounded-full bg-white/70 text-[#445184] flex items-center justify-center disabled:opacity-60"
+                onClick={handleShare}
+                disabled={sharing || !detail}
+                aria-label="分享行程"
+                title="分享行程"
+              >
+                <span className="material-symbols-outlined text-[18px]">share</span>
+              </button>
+              <button
+                type="button"
+                className="w-9 h-9 rounded-full bg-white/70 text-[#445184] flex items-center justify-center"
+                onClick={() => {
+                  setEditingItineraryId(null);
+                  setItineraryForm(EMPTY_ITINERARY_FORM);
+                  setShowCreateItinerary((prev) => !prev);
+                }}
+              >
+                <span className="material-symbols-outlined text-[18px]">add</span>
+              </button>
+            </div>
           </div>
 
           {showCreateItinerary && (
@@ -667,7 +823,84 @@ export default function Itinerary() {
           )}
         </header>
 
+        {notice && <div className="rounded-xl bg-[#e3f6e9] text-[#1c7c3f] px-4 py-2.5 text-sm">{notice}</div>}
         {error && <div className="rounded-xl bg-error/10 text-error px-4 py-2.5 text-sm">{error}</div>}
+
+        {/* 功能5：预算卡片 —— estimatedBudget 有值展示总额拆解，budgetPerPerson 可行内编辑 */}
+        {!!detail && (
+          <section className="rounded-2xl border border-[#f0d9b8] bg-[#fdf3e3] p-3.5">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[#8d5a0f] text-[20px]">savings</span>
+                  <h3 className="text-sm font-black text-[#5c430f]">行程预算</h3>
+                </div>
+                {effectiveEstimatedBudget != null ? (
+                  <>
+                    <p className="text-xl font-black text-[#5c430f] mt-1.5">预估总花费 ¥{effectiveEstimatedBudget.toLocaleString()}</p>
+                    <p className="text-xs text-[#8a743f] mt-1">
+                      {perPersonBudget != null && `人均 ¥${perPersonBudget.toLocaleString()} · `}
+                      {`日均 ¥${(perDayBudget || 0).toLocaleString()}（${dayCount} 天）`}
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-xs text-[#8a743f] mt-1.5">设置人均预算后估算总花费与日均支出</p>
+                )}
+              </div>
+              <div className="shrink-0 text-right">
+                <p className="text-[11px] font-bold text-[#8a743f]">人均预算</p>
+                {budgetEditing ? (
+                  <div className="flex flex-col items-end gap-1.5 mt-1">
+                    <input
+                      type="number"
+                      min={0}
+                      className="w-24 rounded-lg border border-[#e0c48f] px-2 py-1.5 text-sm bg-white"
+                      placeholder="如 2000"
+                      value={budgetInput}
+                      autoFocus
+                      onChange={(e) => setBudgetInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleSaveBudget();
+                        }
+                      }}
+                    />
+                    <div className="flex gap-1.5">
+                      <button
+                        type="button"
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-[#3e6dd8] text-white disabled:opacity-60"
+                        onClick={handleSaveBudget}
+                        disabled={saving}
+                      >
+                        保存
+                      </button>
+                      <button
+                        type="button"
+                        className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white text-[#8a743f] border border-[#e0c48f]"
+                        onClick={() => {
+                          setBudgetEditing(false);
+                          setBudgetInput('');
+                        }}
+                      >
+                        取消
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="mt-1 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-white text-[#8d5a0f] border border-[#e0c48f] disabled:opacity-60"
+                    onClick={handleStartEditBudget}
+                    disabled={saving}
+                  >
+                    {detail.budgetPerPerson != null ? `¥${Number(detail.budgetPerPerson).toLocaleString()} 修改` : '设置'}
+                  </button>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
 
         <section className="rounded-2xl bg-[#eef1ff] p-2 border border-[#d8def7]">
           <div className="flex items-center justify-between mb-1.5 px-1">
@@ -860,8 +1093,44 @@ export default function Itinerary() {
               这一天还没有安排地点，先去详情页点“加入我的行程”吧。
             </div>
           ) : (
-            activeDayData.places.map((place, index) => (
-              <article key={place.id} className="relative pl-10">
+            <>
+              {activeDayData.places.length > 1 && (
+                <p className="text-[11px] text-[#7d88b3] flex items-center gap-1">
+                  <span className="material-symbols-outlined text-[14px]">drag_pan</span>
+                  拖动地点卡片可调整当天顺序
+                </p>
+              )}
+              {activeDayData.places.map((place, index) => (
+                <article
+                  key={place.id}
+                  className="relative pl-10"
+                  draggable
+                  onDragStart={(e) => {
+                    setDragPlaceId(place.id);
+                    e.dataTransfer.effectAllowed = 'move';
+                    e.dataTransfer.setData('text/plain', String(place.id));
+                  }}
+                  onDragOver={(e) => {
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (dragOverPlaceId !== place.id) {
+                      setDragOverPlaceId(place.id);
+                    }
+                  }}
+                  onDragLeave={() => {
+                    if (dragOverPlaceId === place.id) {
+                      setDragOverPlaceId(null);
+                    }
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    handleDropReorder(place.id);
+                  }}
+                  onDragEnd={() => {
+                    setDragPlaceId(null);
+                    setDragOverPlaceId(null);
+                  }}
+                >
                 <div className={`absolute left-[9px] top-0 ${index === activeDayData.places.length - 1 ? 'h-3' : 'h-[calc(100%+22px)]'} w-[2px] bg-[#c5ceef]`} />
                 <div className="absolute left-0 top-2 w-5 h-5 rounded-full bg-[#1d65d8] border-4 border-[#dbe3ff]" />
 
@@ -870,7 +1139,19 @@ export default function Itinerary() {
                   <p className="text-xs text-[#8a93b6]">建议时长: {place.duration || '2h'}</p>
                 </div>
 
-                <div className="rounded-2xl bg-[#f7f8ff] border border-[#d8dff7] p-3.5 shadow-[0_8px_20px_rgba(82,95,151,0.12)]">
+                <div
+                  className={`rounded-2xl bg-[#f7f8ff] border p-3.5 shadow-[0_8px_20px_rgba(82,95,151,0.12)] transition-shadow cursor-grab active:cursor-grabbing ${
+                    dragPlaceId === place.id
+                      ? 'border-[#5d8bf2] opacity-50'
+                      : dragOverPlaceId === place.id
+                        ? 'border-[#5d8bf2] ring-2 ring-[#5d8bf2]/40'
+                        : 'border-[#d8dff7]'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2 mb-1 text-[#a5aecd]">
+                    <span className="text-[11px] font-bold text-[#7d88b3]">#{index + 1}</span>
+                    <span className="material-symbols-outlined text-[16px]" title="拖动排序">drag_indicator</span>
+                  </div>
                   {place.imageUrl && place.type !== 'restaurant' && (
                     <img
                       src={place.imageUrl}
@@ -925,17 +1206,22 @@ export default function Itinerary() {
                     </button>
                   </div>
                 </div>
-              </article>
-            ))
+                </article>
+              ))}
+            </>
           )}
         </section>
 
         <section className="space-y-3 pb-6">
-          <div className="rounded-2xl bg-[#dde4ff] px-4 py-3.5 border border-[#c6d0f6]">
-            <span className="material-symbols-outlined text-[#2d68d8] text-2xl">map</span>
-            <h4 className="text-2xl font-black text-[#1f2b57] mt-2">地图视图</h4>
-            <p className="text-xs text-[#6f7aa8] mt-0.5">查看今日行程路线图</p>
-          </div>
+          {/* 功能2：高德地图路线（AMap JS API 2.0）。未配置 VITE_AMAP_JS_KEY 时整个地图区块不渲染 */}
+          {hasAmapKey() && !!detail && (
+            <div className="rounded-2xl bg-[#dde4ff] px-4 py-3.5 border border-[#c6d0f6]">
+              <span className="material-symbols-outlined text-[#2d68d8] text-2xl">map</span>
+              <h4 className="text-2xl font-black text-[#1f2b57] mt-2">地图路线</h4>
+              <p className="text-xs text-[#6f7aa8] mt-0.5 mb-3">按天连线展示全部行程地点</p>
+              <ItineraryMap days={days} city={detail.destination} />
+            </div>
+          )}
 
           <div className="rounded-2xl bg-[#e7eef2] px-4 py-3.5 border border-[#d5dde4]">
             <span className="material-symbols-outlined text-[#198754] text-2xl">cloud</span>

@@ -27,9 +27,12 @@ const Agent = lazy(() => import('./pages/Agent'));
 const Favorites = lazy(() => import('./pages/Favorites'));
 const Orders = lazy(() => import('./pages/Orders'));
 const OrderDetail = lazy(() => import('./pages/OrderDetail'));
+const Notifications = lazy(() => import('./pages/Notifications'));
 const Search = lazy(() => import('./pages/Search'));
 const MyFiles = lazy(() => import('./pages/MyFiles'));
 const Trace = lazy(() => import('./pages/Trace'));
+// 行程分享公开页：不包 RequireAuth，无需登录
+const ShareItinerary = lazy(() => import('./pages/ShareItinerary'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 function RouteFallback() {
@@ -42,7 +45,11 @@ function RouteFallback() {
 
 function AppContent() {
   const location = useLocation();
-  const hideBottomNav = location.pathname === '/forgot-password' || location.pathname === '/search';
+  const hideBottomNav =
+    location.pathname === '/forgot-password' ||
+    location.pathname === '/search' ||
+    // 分享公开页使用简版布局，不展示底部导航
+    location.pathname.startsWith('/share/');
 
   return (
     <div className="bg-surface text-on-surface min-h-screen">
@@ -60,6 +67,7 @@ function AppContent() {
         <Route path="/favorites" element={<RequireAuth><Favorites /></RequireAuth>} />
         <Route path="/orders" element={<RequireAuth><Orders /></RequireAuth>} />
         <Route path="/orders/:orderId" element={<RequireAuth><OrderDetail /></RequireAuth>} />
+        <Route path="/notifications" element={<RequireAuth><Notifications /></RequireAuth>} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -68,6 +76,8 @@ function AppContent() {
         <Route path="/search" element={<Search />} />
         <Route path="/my-files" element={<RequireAuth><MyFiles /></RequireAuth>} />
         <Route path="/trace" element={<RequireAuth><Trace /></RequireAuth>} />
+        {/* 分享页在 RequireAuth 之外：公开访问，仅只读 */}
+        <Route path="/share/:token" element={<ShareItinerary />} />
         <Route path="*" element={<NotFound />} />
         </Routes>
       </Suspense>

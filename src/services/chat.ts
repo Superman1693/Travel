@@ -85,6 +85,50 @@ export const sendMessageStream = async (
     }
 };
 
+// RAG 知识问答流式对话：与 sendMessageStream 消费方式一致（data 行为纯文本增量），仅 URL 不同
+export const sendRagMessageStream = async (
+    message: string,
+    chatId: string = 'default',
+    onChunk: (chunk: string) => void,
+    onComplete: () => void,
+    onError: (error: Error) => void
+): Promise<void> => {
+    const token = localStorage.getItem('token');
+    const params = new URLSearchParams({ message, chatId });
+    const url = `${API_BASE_URL}/ai/rag/chat?${params}`;
+
+    try {
+        const response = await fetch(url, {
+            headers: {
+                Authorization: `Bearer ${token}`,
+            },
+        });
+
+        if (response.status === 401) {
+            handleUnauthorized();
+            return;
+        }
+
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+
+        await readSseLines(response, (line) => {
+            if (!line.startsWith('data:')) {
+                return;
+            }
+            const chunk = line.slice(5).trim();
+            if (chunk) {
+                onChunk(chunk);
+            }
+        });
+
+        onComplete();
+    } catch (error) {
+        onError(error as Error);
+    }
+};
+
 // 同步对话（备用）
 export const sendMessageSync = async (
     message: string,

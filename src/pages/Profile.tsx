@@ -1,8 +1,9 @@
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { Link,useNavigate } from 'react-router-dom';
+import { Bell } from 'lucide-react';
 
 import defaultAvatar from '../assets/unnamed.png'
-import { getOrderList, type Order } from '../services';
+import { getOrderList, getNotificationList, type Order } from '../services';
 import { getCurrentUser, uploadAvatar, User } from '../services/user';
 
 export default function Profile() {
@@ -15,6 +16,7 @@ export default function Profile() {
   const [orderList, setOrderList] = useState<Order[]>([]);
   const [isLoadingOrders, setIsLoadingOrders] = useState(true);
   const [orderError, setOrderError] = useState('');
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const navigate = useNavigate();
   const [toastMessage, setToastMessage] = useState('');
@@ -72,6 +74,18 @@ export default function Profile() {
     };
 
     fetchOrders();
+
+    // 未读通知数：进 Profile 时查 unreadOnly=true 的 total，>0 才显示角标；接口失败静默
+    const fetchUnreadNotifications = async () => {
+      try {
+        const result = await getNotificationList(true, 1, 1);
+        setUnreadNotificationCount(result.total || 0);
+      } catch {
+        // 静默失败：不展示未读角标
+      }
+    };
+
+    fetchUnreadNotifications();
   }, [navigate]);
 
   const handleAvatarClick = () => {
@@ -283,6 +297,25 @@ export default function Profile() {
           <button onClick={() => showToast('优惠券功能开发中')} className="bg-surface-container-lowest rounded-xl p-5 flex items-center gap-4 shadow-[0_12px_32px_rgba(35,44,81,0.06)] hover:bg-surface-container-low transition-colors duration-300 text-left cursor-pointer active:scale-95">
             <span className="material-symbols-outlined text-tertiary text-2xl bg-tertiary/10 p-2 rounded-full">confirmation_number</span>
             <span className="font-medium text-on-surface text-sm">优惠券</span>
+          </button>
+          <button
+            className="col-span-2 bg-surface-container-lowest rounded-xl p-5 flex items-center justify-between shadow-[0_12px_32px_rgba(35,44,81,0.06)] hover:bg-surface-container-low transition-colors duration-300 text-left cursor-pointer active:scale-[0.98]"
+            onClick={() => navigate('/notifications')}
+          >
+            <div className="flex items-center gap-4">
+              <span className="text-primary bg-primary-container/20 p-2 rounded-full inline-flex items-center justify-center">
+                <Bell size={24} />
+              </span>
+              <span className="font-medium text-on-surface text-sm">消息通知</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {unreadNotificationCount > 0 && (
+                <span className="min-w-5 h-5 px-1.5 rounded-full bg-error text-white text-xs font-bold flex items-center justify-center">
+                  {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
+                </span>
+              )}
+              <span className="material-symbols-outlined text-outline-variant">chevron_right</span>
+            </div>
           </button>
           <button onClick={() => showToast('帮助中心功能开发中')} className="col-span-2 bg-surface-container-lowest rounded-xl p-5 flex items-center justify-between shadow-[0_12px_32px_rgba(35,44,81,0.06)] hover:bg-surface-container-low transition-colors duration-300 text-left cursor-pointer active:scale-[0.98]">
             <div className="flex items-center gap-4">

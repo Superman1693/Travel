@@ -54,3 +54,11 @@ npm run build    # 生产构建
 
 前端通过 `VITE_API_BASE_URL` 指定后端地址（默认 `http://localhost:8123/api`）。
 生产构建请在 `.env` 或 CI 中显式设置，避免连到错误环境。
+
+### 前端可选环境变量
+
+| 变量 | 必需 | 说明 |
+|---|---|---|
+| `VITE_API_BASE_URL` | 建议 | 后端 API 地址（默认 `http://localhost:8123/api`） |
+| `VITE_AMAP_JS_KEY` | 可选 | 高德地图 JS API 2.0 key，用于行程页路线地图；**未配置时地图区块整体不渲染（优雅降级）** |
+| `VITE_AMAP_SECURITY_CODE` | 可选 | 高德 JS API 安全密钥（配合 `VITE_AMAP_JS_KEY` 使用，加载脚本前自动挂载到 `window._AMapSecurityConfig`） |

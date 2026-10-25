@@ -2,9 +2,11 @@ import api from './api';
 
 export interface Notification {
     id: number;
+    userId?: number;
     title: string;
     content: string;
-    type: 'system' | 'promotion' | 'reminder';
+    // 后端实体 type 实际取值：system / order / reminder
+    type: 'system' | 'order' | 'reminder';
     isRead: boolean;
     createTime: string;
 }
